@@ -24,7 +24,7 @@ from app.models.ai import (
     ModelVersion,
     PerformancePrediction,
 )
-from app.models.session import ActivityMetric
+from app.models.session import ActivityMetric, WorkSession
 from app.models.self_report import SelfReport
 from app.services import recommendation_service
 from app.websocket.manager import ws_manager
@@ -38,13 +38,30 @@ logger = logging.getLogger(__name__)
 
 
 def _load_real_data(db: Session, user_id: str | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Load real activity metrics and self-reports from the database."""
-    metrics_q = db.query(ActivityMetric)
-    reports_q = db.query(SelfReport)
+    """Load real activity metrics and self-reports from the database.
+
+    Rows seeded for demonstration (``is_demo=True``) are excluded so a
+    model trained on this data can never learn from synthetic examples.
+    """
+    metrics_q = db.query(ActivityMetric).filter(ActivityMetric.is_demo.is_(False))
+    reports_q = db.query(SelfReport).filter(SelfReport.is_demo.is_(False))
 
     if user_id:
         metrics_q = metrics_q.filter(ActivityMetric.user_id == user_id)
         reports_q = reports_q.filter(SelfReport.user_id == user_id)
+
+    # Defence in depth: also drop rows attached to a demo session, in case
+    # only the parent was flagged.
+    demo_sq = db.query(WorkSession.id).filter(WorkSession.is_demo.is_(True))
+    if user_id:
+        demo_sq = demo_sq.filter(WorkSession.user_id == user_id)
+    demo_session_ids = [row[0] for row in demo_sq.all()]
+    if demo_session_ids:
+        metrics_q = metrics_q.filter(~ActivityMetric.session_id.in_(demo_session_ids))
+        reports_q = reports_q.filter(
+            (SelfReport.session_id.is_(None))
+            | (~SelfReport.session_id.in_(demo_session_ids))
+        )
 
     metrics_list = metrics_q.all()
     reports_list = reports_q.all()
@@ -470,6 +487,7 @@ def _build_user_feature_frame(
     metrics_list = (
         db.query(ActivityMetric)
         .filter(ActivityMetric.user_id == user_id)
+        .filter(ActivityMetric.is_demo.is_(False))
         .order_by(ActivityMetric.recorded_at.asc())
         .all()
     )
@@ -513,9 +531,10 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
     """Run a fatigue assessment for the user and store the result."""
     bundle = _get_active_model_bundle(db, "fatigue_classification")
 
-    # Determine data availability
+    # Determine data availability (real rows only; demo seed doesn't count)
     metrics_count = db.query(ActivityMetric).filter(
-        ActivityMetric.user_id == user_id
+        ActivityMetric.user_id == user_id,
+        ActivityMetric.is_demo.is_(False),
     ).count()
 
     if bundle is None:
@@ -636,7 +655,8 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
     bundle = _get_active_model_bundle(db, "performance_regression")
 
     metrics_count = db.query(ActivityMetric).filter(
-        ActivityMetric.user_id == user_id
+        ActivityMetric.user_id == user_id,
+        ActivityMetric.is_demo.is_(False),
     ).count()
 
     if bundle is None:

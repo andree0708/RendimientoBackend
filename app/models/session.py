@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -38,6 +38,8 @@ class WorkSession(TimestampMixin, Base):
     pause_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Synthetic seed/demo rows. Excluded from ML training (see pipeline).
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     user: Mapped["User"] = relationship("User", back_populates="work_sessions")
     metrics: Mapped[list["ActivityMetric"]] = relationship(
@@ -92,6 +94,9 @@ class ActivityMetric(TimestampMixin, Base):
 
     # Raw JSON blob for flexible extra data (never sensitive content)
     extra_metadata: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    # Synthetic seed/demo rows. Excluded from ML training (see pipeline).
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     session: Mapped[WorkSession] = relationship("WorkSession", back_populates="metrics")
 

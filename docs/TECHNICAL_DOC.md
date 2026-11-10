@@ -131,6 +131,11 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - El tab mostraba el logo de Angular: `public/favicon.ico` por defecto del CLI seguía empaquetado y referenciado como fallback; Chrome además cachea favicons agresivamente. Fix: eliminado `favicon.ico`, solo `favicon.svg` propio (commit "Quita favicon.ico…", redesplegado). En prod `/favicon.svg` → 200. Pedir hard refresh (Ctrl+Shift+R).
 - El `ERR_CONNECTION_REFUSED` a `localhost:8000` era backend local apagado, no CORS: verificado `Access-Control-Allow-Origin: http://localhost:4200` en respuesta real y login demo local → 200 tras arrancar uvicorn. Trampa conocida: la variable de entorno `DATABASE_URL=jdbc:...` tiene prioridad sobre `.env` en pydantic-settings; hay que sobrescribirla (`sqlite:///./worksense.db`) al arrancar en local.
 
+## Seed de datos sintéticos demo (2026-11-10)
+- `scripts/seed_demo.py` genera 2 semanas realistas para un usuario (11 sesiones, ~4.5k métricas con lunch-dip y deltas por intervalo, 9 autorreportes, 18 tareas ES + 9 resultados). NO fabrica assessments, predicciones ni recomendaciones (salidas del sistema).
+- Integridad: columna `is_demo` en `work_sessions`, `activity_metrics`, `self_reports` (migración Alembic `63f2d3832af3`, con backfill y NOT NULL); `_load_real_data` excluye demo + sesiones demo (doble defensa), y el conteo de `assess_fatigue`/`predict_performance` e `_build_user_feature_frame` también. Verificado en prod: `TRAIN-DATA-FOR-DEMO-USER: 0 0`.
+- Migración BD existente: `alembic stamp <baseline>` primero si se creó con `init_db` (prod), luego `upgrade head`. Test nuevo: `tests/test_seed_integrity.py`. Suite: **98 passed**.
+
 ## Bug producción: build sin `environment.prod.ts` (2026-11-10)
 - Síntoma real: desde `http://98.94.12.167:8080` el login llamaba a `http://localhost:8000` y Chrome lo bloqueaba (origen público → loopback: error CORS de "private address space", no arreglable con headers).
 - Causa: `angular.json` no tenía `fileReplacements` en la config `production`, así que todos los builds empaquetaban `environment.ts` (dev, con `localhost:8000` hardcodeado). Fix: añadido el `fileReplacements` a `environment.prod.ts` (rutas relativas `/api/v1`, `/ws`) y `Dockerfile` ahora exige `--configuration production`.
