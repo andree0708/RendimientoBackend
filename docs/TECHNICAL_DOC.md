@@ -135,3 +135,10 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Síntoma real: desde `http://98.94.12.167:8080` el login llamaba a `http://localhost:8000` y Chrome lo bloqueaba (origen público → loopback: error CORS de "private address space", no arreglable con headers).
 - Causa: `angular.json` no tenía `fileReplacements` en la config `production`, así que todos los builds empaquetaban `environment.ts` (dev, con `localhost:8000` hardcodeado). Fix: añadido el `fileReplacements` a `environment.prod.ts` (rutas relativas `/api/v1`, `/ws`) y `Dockerfile` ahora exige `--configuration production`.
 - Verificado en el dist local (`localhost:8000`: 0 coincidencias) y en el servidor (ninguna referencia en los chunks servidos). Redespliegue solo frontend; login demo en prod → 200.
+
+## Acceso HTTPS público vía Cloudflare Tunnel (2026-11-10)
+- Instalado `cloudflared 2026.10.7` en la instancia (RPM oficial). Túnel rápido al frontend local (`:8080`): sin puertos nuevos, sin IP elástica, sin dominio.
+- Persistente con systemd: `/etc/systemd/system/worksense-tunnel.service` (origen en `~/worksense/worksense-tunnel.service`), `enable --now`, `Restart=always`, logs en `~/worksense/cloudflared.log`.
+- URL canónica: `https://hiring-infinite-turn-translate.trycloudflare.com` (verificada: `/` → 200, login demo → 200; cafeia intacto). OJO: los túneles rápidos cambian de URL si el túnel se recrea; para URL fija haría falta dominio propio + túnel nombrado.
+- Comandos útiles en el servidor: `sudo systemctl status worksense-tunnel`, URL actual con `grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' ~/worksense/cloudflared.log | tail -1`.
+- Backend local: `RendimientoBackend/start-local.ps1` lo arranca como proceso independiente (PID + logs `backend-local.*`, ignorados en git); si el PC se reinicia, re-ejecutarlo.
