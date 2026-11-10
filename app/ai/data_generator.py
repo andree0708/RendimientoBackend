@@ -44,56 +44,56 @@ def generate_demo_dataset(
 
         for s_idx in range(sessions_per_user):
             session_id = f"demo_sess_{user_idx:03d}_{s_idx:03d}"
-            started_at = session_date + timedelta(days=s_idx, hours=rng.integers(7, 11))
+            started_at = session_date + timedelta(days=int(s_idx), hours=int(rng.integers(7, 11)))
 
             # Simulate fatigue buildup within a session
             cumulative_work = 0
             for m_idx in range(metrics_per_session):
-                recorded_at = started_at + timedelta(minutes=m_idx)
+                recorded_at = started_at + timedelta(minutes=int(m_idx))
 
                 # Fatigue factor grows with continuous work within the session
                 fatigue_factor = cumulative_work / 7200  # normalise by 2h
                 fatigue_factor = min(fatigue_factor, 1.5)
 
-                active_seconds = max(0, int(base_activity * (1 - 0.15 * fatigue_factor) + rng.normal(0, 20)))
-                idle_seconds = max(0, int(base_idle * (1 + 0.4 * fatigue_factor) + rng.normal(0, 10)))
-                continuous_work_seconds = active_seconds + max(0, int(60 * (1 + fatigue_factor)))
-                pause_count = max(0, int(rng.poisson(base_pause_freq * (1 + fatigue_factor * 2))))
-                app_switch_count = max(0, int(rng.poisson(2 + fatigue_factor * 3)))
-                interruptions_count = max(0, int(rng.poisson(1 + fatigue_factor * 2)))
-                tasks_completed = max(0, int(rng.poisson(0.8 * (1 - 0.2 * fatigue_factor))))
+                active_seconds = max(0, int(base_activity * (1 - 0.15 * float(fatigue_factor)) + rng.normal(0, 20)))
+                idle_seconds = max(0, int(base_idle * (1 + 0.4 * float(fatigue_factor)) + rng.normal(0, 10)))
+                continuous_work_seconds = active_seconds + max(0, int(60 * (1 + float(fatigue_factor))))
+                pause_count = max(0, int(rng.poisson(base_pause_freq * (1 + float(fatigue_factor) * 2))))
+                app_switch_count = max(0, int(rng.poisson(2 + float(fatigue_factor) * 3)))
+                interruptions_count = max(0, int(rng.poisson(1 + float(fatigue_factor) * 2)))
+                tasks_completed = max(0, int(rng.poisson(0.8 * (1 - 0.2 * float(fatigue_factor)))))
                 tasks_started = tasks_completed + max(0, int(rng.poisson(0.3)))
-                errors_reported = max(0, int(rng.poisson(base_error_rate * (1 + fatigue_factor * 3))))
+                errors_reported = max(0, int(rng.poisson(base_error_rate * (1 + float(fatigue_factor) * 3))))
 
                 metrics_rows.append(
                     {
                         "user_id": user_id,
                         "session_id": session_id,
                         "recorded_at": recorded_at,
-                        "interval_index": m_idx,
-                        "active_seconds": active_seconds,
-                        "idle_seconds": idle_seconds,
-                        "continuous_work_seconds": continuous_work_seconds,
-                        "pause_count": pause_count,
-                        "pause_total_seconds": pause_count * int(rng.integers(30, 120)),
-                        "app_switch_count": app_switch_count,
-                        "interruptions_count": interruptions_count,
-                        "tasks_started": tasks_started,
-                        "tasks_completed": tasks_completed,
-                        "errors_reported": errors_reported,
+                        "interval_index": int(m_idx),
+                        "active_seconds": int(active_seconds),
+                        "idle_seconds": int(idle_seconds),
+                        "continuous_work_seconds": int(continuous_work_seconds),
+                        "pause_count": int(pause_count),
+                        "pause_total_seconds": int(pause_count) * int(rng.integers(30, 120)),
+                        "app_switch_count": int(app_switch_count),
+                        "interruptions_count": int(interruptions_count),
+                        "tasks_started": int(tasks_started),
+                        "tasks_completed": int(tasks_completed),
+                        "errors_reported": int(errors_reported),
                         "is_demo": True,
                     }
                 )
                 cumulative_work += active_seconds
 
             # Self-report for this session (mid-session or end)
-            fatigue_level = min(5, max(1, int(base_fatigue + rng.integers(-1, 3) + s_idx * 0.1)))
-            fatigue_level = min(fatigue_level, 10)
-            stress_level = min(10, max(1, fatigue_level + rng.integers(-1, 2)))
-            concentration_level = min(10, max(1, 11 - fatigue_level + rng.integers(-1, 2)))
+            fatigue_level = min(5, max(1, int(base_fatigue) + int(rng.integers(-1, 3)) + int(s_idx * 0.1)))
+            fatigue_level = min(int(fatigue_level), 10)
+            stress_level = min(10, max(1, fatigue_level + int(rng.integers(-1, 2))))
+            concentration_level = min(10, max(1, 11 - fatigue_level + int(rng.integers(-1, 2))))
             task_difficulty = int(rng.integers(2, 6))
             perceived_effort = min(10, max(1, task_difficulty + fatigue_level // 2))
-            need_for_break = min(10, max(1, fatigue_level + rng.integers(0, 2)))
+            need_for_break = min(10, max(1, fatigue_level + int(rng.integers(0, 2))))
             sleep_hours = round(rng.uniform(4, 9), 1)
             sleep_quality = int(rng.integers(1, 6))
 

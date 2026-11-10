@@ -601,10 +601,18 @@ def detect_anomalies(db: Session, user_id: str) -> dict:
 
     model = bundle["model"]
     scaler = bundle.get("scaler")
+    feature_names = bundle["feature_names"]
 
     X, _ = _build_user_feature_vector(db, user_id, None)
 
-    if scaler and X.shape[1] == len(bundle["feature_names"]):
+    # Align features: pad or select to match the model's expected input
+    if X.shape[1] != len(feature_names):
+        padded = np.zeros((1, len(feature_names)))
+        min_cols = min(X.shape[1], len(feature_names))
+        padded[0, :min_cols] = X[0, :min_cols] if X.ndim > 1 else X[:min_cols]
+        X = padded
+
+    if scaler:
         X = scaler.transform(X)
 
     predictions = model.predict(X)
