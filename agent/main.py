@@ -12,6 +12,7 @@ privacy-respecting aggregated metadata.
 """
 
 import argparse
+import getpass
 import logging
 import os
 import signal
@@ -22,7 +23,7 @@ from datetime import datetime, timezone
 
 from agent.api_client import AgentAPIClient
 from agent.collector import MetricCollector
-from agent.config import AgentConfig
+from agent.config import CONFIG_FILE, PASSWORD_ENV, AgentConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,6 +37,24 @@ _collector: MetricCollector | None = None
 _client: AgentAPIClient | None = None
 
 
+def _resolve_password(config: AgentConfig) -> str:
+    """Resolve the account password without ever persisting it.
+
+    Order: environment variable, then an interactive prompt. Returns an
+    empty string when no password can be obtained (e.g. non-interactive
+    execution without the env var).
+    """
+    password = config.resolve_password()
+    if password:
+        return password
+    if sys.stdin.isatty():
+        try:
+            return getpass.getpass("WorkSense password: ")
+        except (EOFError, KeyboardInterrupt):
+            return ""
+    return ""
+
+
 def cmd_setup() -> None:
     """Interactive setup: configure backend URL, email, and password."""
     config = AgentConfig.load()
@@ -43,7 +62,7 @@ def cmd_setup() -> None:
     print("\n=== WorkSense AI Agent Setup ===\n")
     config.backend_url = input(f"Backend URL [{config.backend_url}]: ") or config.backend_url
     config.email = input(f"Email [{config.email}]: ") or config.email
-    password = input("Password (leave blank to keep): ")
+    password = getpass.getpass("Password (leave blank to keep current): ")
     if password:
         config.password = password
     config.collection_interval = int(
@@ -55,7 +74,12 @@ def cmd_setup() -> None:
         or config.idle_threshold
     )
     config.save()
-    print("\nConfiguration saved to", AgentConfig.CONFIG_FILE)
+    print("\nConfiguration saved to", CONFIG_FILE)
+    print(
+        "The password is not stored on disk. Set the "
+        f"{PASSWORD_ENV} environment variable or you will be prompted "
+        "each time the agent starts."
+    )
 
 
 def cmd_start() -> None:
@@ -63,8 +87,15 @@ def cmd_start() -> None:
     global _running, _collector, _client
 
     config = AgentConfig.load()
-    if not config.email or not config.password:
+    if not config.email:
         print("Please run 'agent setup' first to configure credentials.")
+        sys.exit(1)
+    config.password = _resolve_password(config)
+    if not config.password:
+        print(
+            "No password available. Set the "
+            f"{PASSWORD_ENV} environment variable or run interactively."
+        )
         sys.exit(1)
 
     _client = AgentAPIClient(config)
@@ -73,6 +104,19 @@ def cmd_start() -> None:
     print("\nAuthenticating with backend...")
     if not _client.login():
         print("Authentication failed. Check your credentials and backend URL.")
+        sys.exit(1)
+
+    # Consent is mandatory before collecting any metric. Fail closed when the
+    # status cannot be verified.
+    consent = _client.get_consent()
+    if consent is None:
+        print("Could not verify data-collection consent. Refusing to collect.")
+        sys.exit(1)
+    if not consent:
+        print(
+            "Data-collection consent is not granted. "
+            "Grant it in Settings before starting the agent."
+        )
         sys.exit(1)
 
     # Start a work session
@@ -105,6 +149,11 @@ def cmd_start() -> None:
     last_report_time = time.time()
 
     while _running:
+        # Consent can be withdrawn at any time from the web UI.
+        if _client.consent_revoked:
+            logger.error("Data-collection consent was withdrawn. Stopping agent.")
+            break
+
         # Collect metrics
         metric = _collector.collect(config.collection_interval)
         metrics_buffer.append(metric)
@@ -113,6 +162,9 @@ def cmd_start() -> None:
         if len(metrics_buffer) >= config.batch_size:
             _client.send_metrics(metrics_buffer)
             metrics_buffer = []
+            if _client.consent_revoked:
+                logger.error("Data-collection consent was withdrawn. Stopping agent.")
+                break
 
         # Periodically trigger AI assessment (every ~10 minutes)
         ai_check_counter += 1
@@ -147,7 +199,7 @@ def cmd_start() -> None:
 
     # Graceful shutdown: flush remaining metrics and stop session
     print("\nFlushing remaining metrics...")
-    if metrics_buffer:
+    if metrics_buffer and not _client.consent_revoked:
         _client.send_metrics(metrics_buffer)
 
     print("Stopping work session...")
@@ -158,8 +210,15 @@ def cmd_start() -> None:
 def cmd_report() -> None:
     """Submit a quick self-report interactively."""
     config = AgentConfig.load()
-    if not config.email or not config.password:
+    if not config.email:
         print("Please run 'agent setup' first.")
+        sys.exit(1)
+    config.password = _resolve_password(config)
+    if not config.password:
+        print(
+            "No password available. Set the "
+            f"{PASSWORD_ENV} environment variable or run interactively."
+        )
         sys.exit(1)
 
     client = AgentAPIClient(config)
@@ -204,6 +263,10 @@ def cmd_report() -> None:
 def cmd_stop() -> None:
     """Stop any active session on the backend."""
     config = AgentConfig.load()
+    config.password = _resolve_password(config)
+    if not config.email or not config.password:
+        print("No credentials available. Run 'agent setup' first.")
+        sys.exit(1)
     client = AgentAPIClient(config)
     if client.login():
         if client.stop_session():
@@ -223,7 +286,8 @@ def cmd_status() -> None:
     print(f"Interval:       {config.collection_interval}s")
     print(f"Idle threshold:  {config.idle_threshold}s")
     print(f"Batch size:     {config.batch_size}")
-    print(f"Config file:    {AgentConfig.CONFIG_FILE}")
+    print(f"Config file:    {CONFIG_FILE}")
+    print(f"Password:       {'available' if config.resolve_password() else 'not set (will prompt)'}")
     print()
 
 

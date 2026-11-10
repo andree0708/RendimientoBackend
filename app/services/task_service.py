@@ -5,11 +5,34 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundError
+from app.models.session import WorkSession
 from app.models.task import Task, TaskResult
 from app.schemas.task import TaskCreate, TaskResultCreate, TaskUpdate
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """Normalise DB datetimes (SQLite drops tzinfo) for arithmetic."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _assert_session_owned(db: Session, session_id: str | None, user_id: str) -> None:
+    if not session_id:
+        return
+    owned = (
+        db.query(WorkSession.id)
+        .filter(WorkSession.id == session_id, WorkSession.user_id == user_id)
+        .first()
+    )
+    if not owned:
+        raise NotFoundError("Sesión de trabajo no encontrada")
+
+
 def create_task(db: Session, user_id: str, data: TaskCreate) -> Task:
+    _assert_session_owned(db, data.session_id, user_id)
     task = Task(
         user_id=user_id,
         session_id=data.session_id,
@@ -28,7 +51,7 @@ def create_task(db: Session, user_id: str, data: TaskCreate) -> Task:
 def get_task(db: Session, task_id: str, user_id: str) -> Task:
     task = db.query(Task).filter(Task.id == task_id, Task.user_id == user_id).first()
     if not task:
-        raise NotFoundError("Task not found")
+        raise NotFoundError("Tarea no encontrada")
     return task
 
 
@@ -48,10 +71,13 @@ def update_task(db: Session, task_id: str, user_id: str, data: TaskUpdate) -> Ta
 
     # If status changes to completed, set completed_at and compute actual seconds
     if updates.get("status") == "completed" and task.status != "completed":
-        if task.started_at:
-            now = data.completed_at or datetime.now(timezone.utc)
-            task.actual_seconds = int((now - task.started_at).total_seconds())
-        task.completed_at = data.completed_at or datetime.now(timezone.utc)
+        completed_at = _as_utc(data.completed_at) or datetime.now(timezone.utc)
+        started_at = _as_utc(task.started_at)
+        if started_at:
+            task.actual_seconds = max(
+                0, int((completed_at - started_at).total_seconds())
+            )
+        task.completed_at = completed_at
 
     if updates.get("status") == "in_progress" and not task.started_at:
         task.started_at = datetime.now(timezone.utc)

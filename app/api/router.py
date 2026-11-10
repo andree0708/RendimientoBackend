@@ -6,9 +6,11 @@ from app.api.routes import (
     admin,
     ai,
     auth,
+    consent,
     metrics,
     notifications,
     organizations,
+    privacy,
     recommendations,
     self_reports,
     sessions,
@@ -30,6 +32,8 @@ api_router.include_router(self_reports.router)
 api_router.include_router(ai.router)
 api_router.include_router(recommendations.router)
 api_router.include_router(notifications.router)
+api_router.include_router(consent.router)
+api_router.include_router(privacy.router)
 api_router.include_router(admin.router)
 
 # WebSocket endpoint (not under /api/v1 prefix)

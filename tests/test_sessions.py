@@ -46,3 +46,19 @@ class TestSessions:
     def test_sessions_require_auth(self, client):
         resp = client.get("/api/v1/sessions")
         assert resp.status_code == 401
+
+    def test_cannot_read_another_users_session(self, client, auth_headers):
+        created = client.post(
+            "/api/v1/sessions", json={"notes": "private"}, headers=auth_headers
+        )
+        session_id = created.json()["id"]
+
+        other = client.post("/api/v1/auth/register", json={
+            "email": "other@example.com",
+            "password": "otherpass123",
+            "full_name": "Other User",
+        }).json()
+        other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+
+        resp = client.get(f"/api/v1/sessions/{session_id}", headers=other_headers)
+        assert resp.status_code == 404

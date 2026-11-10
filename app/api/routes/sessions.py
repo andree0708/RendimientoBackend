@@ -68,7 +68,7 @@ def get_session(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return session_service.get_session(db, session_id)
+    return session_service.get_session(db, session_id, current_user.id)
 
 
 @router.patch("/{session_id}", response_model=WorkSessionRead)

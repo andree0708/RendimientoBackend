@@ -38,6 +38,24 @@ def setup_database():
     Base.metadata.drop_all(bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limiting():
+    """Disable the shared rate-limit middleware during tests.
+
+    The middleware instance lives on the single app object, so without
+    this its per-IP buckets would fill up across tests and return 429s.
+    The middleware itself is covered by tests/test_rate_limit.py.
+    """
+    from app.core.config import settings
+
+    previous = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = False
+    try:
+        yield
+    finally:
+        settings.RATE_LIMIT_ENABLED = previous
+
+
 @pytest.fixture
 def db():
     """Provide a database session for tests."""

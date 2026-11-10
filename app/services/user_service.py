@@ -11,7 +11,7 @@ from app.schemas.user import UserUpdate
 def get_user(db: Session, user_id: str) -> User:
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise NotFoundError("User not found")
+        raise NotFoundError("Usuario no encontrado")
     return user
 
 

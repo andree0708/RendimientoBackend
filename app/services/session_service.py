@@ -41,7 +41,7 @@ def stop_session(db: Session, session_id: str, user_id: str) -> WorkSession:
         .first()
     )
     if not session:
-        raise NotFoundError("Work session not found")
+        raise NotFoundError("Sesión de trabajo no encontrada")
     if session.status != "active":
         raise ConflictError("Session is already ended")
 
@@ -52,10 +52,14 @@ def stop_session(db: Session, session_id: str, user_id: str) -> WorkSession:
     return session
 
 
-def get_session(db: Session, session_id: str) -> WorkSession:
-    session = db.query(WorkSession).filter(WorkSession.id == session_id).first()
+def get_session(db: Session, session_id: str, user_id: str) -> WorkSession:
+    session = (
+        db.query(WorkSession)
+        .filter(WorkSession.id == session_id, WorkSession.user_id == user_id)
+        .first()
+    )
     if not session:
-        raise NotFoundError("Work session not found")
+        raise NotFoundError("Sesión de trabajo no encontrada")
     return session
 
 
@@ -89,7 +93,7 @@ def update_session(
         .first()
     )
     if not session:
-        raise NotFoundError("Work session not found")
+        raise NotFoundError("Sesión de trabajo no encontrada")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(session, field, value)
     db.commit()

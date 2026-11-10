@@ -74,7 +74,7 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
-                await websocket.send_text(json.dumps({"type": "error", "message": "Invalid JSON"}))
+                await websocket.send_text(json.dumps({"type": "error", "message": "JSON inválido"}))
                 continue
 
             msg_type = msg.get("type", "")
@@ -85,7 +85,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 channels = msg.get("channels", ["user"])
                 await websocket.send_text(
                     json.dumps(
-                        {"type": "ack", "message": f"Subscribed to channels: {channels}"}
+                        {"type": "ack", "message": f"Suscrito a los canales: {channels}"}
                     )
                 )
             elif msg_type == "event_ack":
@@ -93,7 +93,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 logger.debug("Event ack: %s", msg.get("event_id"))
             else:
                 await websocket.send_text(
-                    json.dumps({"type": "error", "message": f"Unknown message type: {msg_type}"})
+                    json.dumps({"type": "error", "message": f"Tipo de mensaje desconocido: {msg_type}"})
                 )
 
     except WebSocketDisconnect:

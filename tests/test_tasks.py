@@ -38,6 +38,31 @@ class TestTasks:
         assert update.status_code == 200
         assert update.json()["status"] == "completed"
 
+    def test_complete_task_after_starting_computes_actual_seconds(self, client, auth_headers):
+        create = client.post("/api/v1/tasks", json={
+            "title": "Started task",
+            "estimated_seconds": 900,
+            "complexity": 2,
+        }, headers=auth_headers)
+        task_id = create.json()["id"]
+
+        started = client.patch(
+            f"/api/v1/tasks/{task_id}", json={"status": "in_progress"},
+            headers=auth_headers,
+        )
+        assert started.status_code == 200
+        assert started.json()["started_at"] is not None
+
+        completed = client.patch(
+            f"/api/v1/tasks/{task_id}", json={"status": "completed"},
+            headers=auth_headers,
+        )
+        assert completed.status_code == 200
+        body = completed.json()
+        assert body["status"] == "completed"
+        assert body["completed_at"] is not None
+        assert body["actual_seconds"] >= 0
+
     def test_add_task_result(self, client, auth_headers):
         create = client.post("/api/v1/tasks", json={
             "title": "Result task",

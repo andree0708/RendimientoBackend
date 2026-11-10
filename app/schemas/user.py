@@ -2,16 +2,22 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.schemas.common import Page
+from app.schemas.password_policy import validate_strong_password
 
 
 class UserCreate(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
     full_name: str = Field(min_length=1, max_length=255)
     preferred_scale_max: int = Field(default=5, ge=3, le=10)
+
+    @field_validator("password", mode="after")
+    @classmethod
+    def _strong_password(cls, v: str) -> str:
+        return validate_strong_password(v)
 
 
 class UserUpdate(BaseModel):

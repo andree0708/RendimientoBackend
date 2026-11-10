@@ -19,6 +19,7 @@ from app.models.ai import (
 from app.models.recommendation import Recommendation
 from app.models.notification import Notification
 from app.models.compliance import ConsentRecord, AgentDevice, AuditLog
+from app.models.auth import RevokedRefreshToken
 
 __all__ = [
     "TimestampMixin",
@@ -45,4 +46,5 @@ __all__ = [
     "ConsentRecord",
     "AgentDevice",
     "AuditLog",
+    "RevokedRefreshToken",
 ]

@@ -1,5 +1,6 @@
 """Security helpers: password hashing and JWT token management."""
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -41,7 +42,7 @@ def create_access_token(
 def create_refresh_token(
     subject: str | int, extra_claims: Optional[dict[str, Any]] = None
 ) -> str:
-    """Create a long-lived refresh JWT."""
+    """Create a long-lived refresh JWT with a unique jti for rotation."""
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
@@ -49,8 +50,11 @@ def create_refresh_token(
         "sub": str(subject),
         "exp": expire,
         "type": "refresh",
+        "jti": uuid.uuid4().hex,
     }
     if extra_claims:
+        # Never allow callers to override the jti.
+        extra_claims = {k: v for k, v in extra_claims.items() if k != "jti"}
         payload.update(extra_claims)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 

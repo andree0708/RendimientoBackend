@@ -13,27 +13,27 @@ class AppException(HTTPException):
 
 
 class NotFoundError(AppException):
-    def __init__(self, detail: str = "Resource not found"):
+    def __init__(self, detail: str = "Recurso no encontrado"):
         super().__init__(detail=detail, status_code=status.HTTP_404_NOT_FOUND, code="not_found")
 
 
 class ConflictError(AppException):
-    def __init__(self, detail: str = "Conflict"):
+    def __init__(self, detail: str = "Conflicto"):
         super().__init__(detail=detail, status_code=status.HTTP_409_CONFLICT, code="conflict")
 
 
 class ForbiddenError(AppException):
-    def __init__(self, detail: str = "You don't have permission to do that"):
+    def __init__(self, detail: str = "No tienes permiso para hacer eso"):
         super().__init__(detail=detail, status_code=status.HTTP_403_FORBIDDEN, code="forbidden")
 
 
 class UnauthorizedError(AppException):
-    def __init__(self, detail: str = "Authentication required"):
+    def __init__(self, detail: str = "Autenticación requerida"):
         super().__init__(detail=detail, status_code=status.HTTP_401_UNAUTHORIZED, code="unauthorized")
 
 
 class ValidationError(AppException):
-    def __init__(self, detail: str = "Validation failed"):
+    def __init__(self, detail: str = "Validación fallida"):
         super().__init__(detail=detail, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, code="validation_error")
 
 

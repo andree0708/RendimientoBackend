@@ -88,7 +88,7 @@ def update_recommendation(
         .first()
     )
     if not rec:
-        raise NotFoundError("Recommendation not found")
+        raise NotFoundError("Recomendación no encontrada")
     if data.status:
         rec.status = data.status
     db.commit()

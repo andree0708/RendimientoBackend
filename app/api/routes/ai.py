@@ -18,7 +18,7 @@ from app.schemas.ai import (
     TrainingRequest,
     TrainingResponse,
 )
-from app.services import ai_service
+from app.services import ai_service, audit_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -30,14 +30,28 @@ async def train_model(
     current_user: User = Depends(get_current_superuser),
 ):
     """Train or retrain a model.  Admin only."""
-    return await ai_service.train_model(db, data)
+    result = await ai_service.train_model(db, data)
+    audit_service.log_event(
+        db,
+        action="ai.train",
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        resource_type="model_version",
+        resource_id=result.model_version_id,
+        detail=(
+            f"type={data.model_type}; use_demo={data.use_demo_data}; "
+            f"success={result.success}"
+        ),
+    )
+    return result
 
 
 @router.get("/models", response_model=list[ModelVersionWithEval])
 def list_models(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
 ):
+    """List model versions.  Admin only: exposes internal artefact paths."""
     return ai_service.list_models(db)
 
 
@@ -45,8 +59,9 @@ def list_models(
 def get_model(
     model_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_superuser),
 ):
+    """Get one model version.  Admin only."""
     return ai_service.get_model(db, model_id)
 
 

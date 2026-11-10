@@ -128,36 +128,57 @@ async def train_fatigue_model(
     metrics_df, reports_df, is_demo = _load_or_generate_data(db, user_id, use_demo)
 
     if metrics_df.empty:
-        raise ValueError("No data available for training (real or demo)")
+        raise ValueError("No hay datos disponibles para entrenar (reales o demo)")
 
-    # Engineer session-level features
-    session_features = feat_engineering.engineer_session_features(metrics_df)
-    session_features = feat_engineering.merge_self_reports(session_features, reports_df)
-    session_features = feat_engineering.add_individual_baseline(session_features)
-
-    # Build labels from self-reports
-    report_labels = reports_df[["user_id", "session_id", "fatigue_level"]].copy()
-    report_labels["fatigue_label"] = (report_labels["fatigue_level"] >= 3).astype(int)
-    session_features = session_features.merge(
-        report_labels[["user_id", "session_id", "fatigue_label"]],
-        on=["user_id", "session_id"],
-        how="left",
+    # Build one row per self-report using only activity observed *before* the
+    # report. Self-reports are labels, never features. Older clients sent no
+    # session_id, so link those reports by time first.
+    reports_df = feat_engineering.link_reports_to_sessions(reports_df, metrics_df)
+    session_features = feat_engineering.engineer_report_features(
+        metrics_df, reports_df
     )
-    session_features["fatigue_label"] = session_features["fatigue_label"].fillna(0).astype(int)
+    if session_features.empty:
+        raise ValueError(
+            "No hay autorreportes con actividad previa disponibles. Envía autorreportes "
+            "durante una sesión para crear etiquetas de entrenamiento."
+        )
+    session_features = feat_engineering.add_individual_baseline(
+        session_features, causal=True
+    )
 
-    # Get feature matrix
-    drop_cols = ["user_id", "session_id", "fatigue_label"]
-    feature_df = session_features.drop(columns=[c for c in drop_cols if c in session_features.columns])
-    X, feature_names = feat_engineering.get_feature_matrix(feature_df)
+    # Explicit feature selection prevents target leakage.
+    feature_df = feat_engineering.select_model_features(
+        session_features, "fatigue_classification"
+    )
+    feature_names = feature_df.columns.tolist()
+    X = feature_df.values
     y = session_features["fatigue_label"].values
     groups = session_features["user_id"].values
 
-    # Train
-    algorithm = "random_forest"
-    model, metrics = models.train_classification(X, y, groups=groups, algorithm=algorithm)
+    # Train (cross-validation compares algorithms and selects the best one)
+    model, metrics = models.train_classification(
+        X, y, groups=groups, algorithm="random_forest"
+    )
+    algorithm = metrics["algorithm"]
+
+    # Quality gate: a model that only predicts the majority class must not be
+    # activated, even if its ROC-AUC looks acceptable.
+    reliable = (
+        metrics.get("roc_auc") is not None
+        and metrics["roc_auc"] >= settings.AI_MIN_ROC_AUC
+        and (metrics.get("balanced_accuracy") or 0.0)
+        >= settings.AI_MIN_BALANCED_ACCURACY
+    )
+    metrics["reliable"] = reliable
+    # Models trained on synthetic data are kept for audit/evaluation only.
+    # They must never drive predictions about real users.
+    activation_allowed = reliable and not is_demo
+    metrics["is_demo"] = is_demo
+    metrics["activated"] = activation_allowed
 
     # Save model
-    scaler = feat_engineering.fit_scaler(X)
+    # Scaling is handled inside the model pipeline when needed.
+    scaler = None
     filepath = models.save_model(model, scaler, feature_names, "fatigue_classification", algorithm, metrics)
 
     # Register in DB
@@ -167,15 +188,25 @@ async def train_fatigue_model(
         algorithm=algorithm,
         version_tag=datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
         file_path=filepath,
-        is_active=True,
+        is_active=activation_allowed,
         trained_on=datetime.now(timezone.utc),
         samples_used=metrics["train_samples"],
-        notes=f"DEMO data: {is_demo}",
+        notes=(
+            f"DEMO data: {is_demo}; "
+            f"activated={activation_allowed}; "
+            f"{metrics.get('cv_folds', 1)}-fold group CV; "
+            f"selected by {metrics.get('selected_by', 'holdout')}; "
+            f"reliable={reliable} (min ROC-AUC {settings.AI_MIN_ROC_AUC}, "
+            f"min balanced accuracy {settings.AI_MIN_BALANCED_ACCURACY}); "
+            f"feature schema v{models.FEATURE_SCHEMA_VERSION}"
+        ),
     )
-    # Deactivate previous active models of same type
-    db.query(ModelVersion).filter(
-        ModelVersion.model_type == "fatigue_classification", ModelVersion.is_active.is_(True)
-    ).update({"is_active": False})
+    # Only replace the active model when the new one passes the quality gate
+    # and was trained on real data.
+    if activation_allowed:
+        db.query(ModelVersion).filter(
+            ModelVersion.model_type == "fatigue_classification", ModelVersion.is_active.is_(True)
+        ).update({"is_active": False})
     db.add(mv)
     db.flush()
 
@@ -206,33 +237,65 @@ async def train_performance_model(
 ) -> tuple[ModelVersion, dict]:
     """Train a performance regression model.
 
-    Target: performance variation (completion_rate - error_rate * 0.5 - 0.5).
+    Target: performance variation of the NEXT session for the same user,
+    built as ``completion_rate - error_rate * 0.5 - 0.5``.
     """
     metrics_df, reports_df, is_demo = _load_or_generate_data(db, user_id, use_demo)
 
     if metrics_df.empty:
-        raise ValueError("No data available for training (real or demo)")
+        raise ValueError("No hay datos disponibles para entrenar (reales o demo)")
 
     session_features = feat_engineering.engineer_session_features(metrics_df)
-    session_features = feat_engineering.merge_self_reports(session_features, reports_df)
-    session_features = feat_engineering.add_individual_baseline(session_features)
+    session_features = feat_engineering.add_individual_baseline(
+        session_features, causal=True
+    )
 
-    # Build target: performance variation
-    # Using the formula from data_generator for consistency
+    # Target: performance variation of the NEXT session (future window).
+    # This matches the spec's forecast horizon and avoids predicting the
+    # present from the present.
     session_features["performance_variation"] = (
         session_features["completion_rate"] - session_features["error_rate"] * 0.5 - 0.5
     )
+    session_features = feat_engineering.add_next_session_target(
+        session_features,
+        "performance_variation",
+        "next_performance_variation",
+    )
+    session_features = session_features.dropna(
+        subset=["next_performance_variation"]
+    )
+    if session_features.empty:
+        raise ValueError(
+            "La predicción de rendimiento necesita al menos dos sesiones por usuario."
+        )
 
-    drop_cols = ["user_id", "session_id", "performance_variation"]
-    feature_df = session_features.drop(columns=[c for c in drop_cols if c in session_features.columns])
-    X, feature_names = feat_engineering.get_feature_matrix(feature_df)
-    y = session_features["performance_variation"].values
+    # Explicit feature selection excludes the target's own components
+    # (completion_rate, error_rate and their aggregates) and the target itself.
+    feature_df = feat_engineering.select_model_features(
+        session_features, "performance_regression"
+    )
+    feature_names = feature_df.columns.tolist()
+    X = feature_df.values
+    y = session_features["next_performance_variation"].values
     groups = session_features["user_id"].values
 
-    algorithm = "gradient_boosting"
-    model, metrics = models.train_regression(X, y, groups=groups, algorithm=algorithm)
+    model, metrics = models.train_regression(
+        X, y, groups=groups, algorithm="gradient_boosting"
+    )
+    algorithm = metrics["algorithm"]
 
-    scaler = feat_engineering.fit_scaler(X)
+    # Quality gate: negative R² means the model is worse than predicting the
+    # mean, so it must not be activated.
+    reliable = (
+        metrics.get("r2") is not None and metrics["r2"] >= settings.AI_MIN_R2
+    )
+    metrics["reliable"] = reliable
+    activation_allowed = reliable and not is_demo
+    metrics["is_demo"] = is_demo
+    metrics["activated"] = activation_allowed
+
+    # Scaling is handled inside the model pipeline when needed.
+    scaler = None
     filepath = models.save_model(model, scaler, feature_names, "performance_regression", algorithm, metrics)
 
     mv = ModelVersion(
@@ -241,14 +304,22 @@ async def train_performance_model(
         algorithm=algorithm,
         version_tag=datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
         file_path=filepath,
-        is_active=True,
+        is_active=activation_allowed,
         trained_on=datetime.now(timezone.utc),
         samples_used=metrics["train_samples"],
-        notes=f"DEMO data: {is_demo}",
+        notes=(
+            f"DEMO data: {is_demo}; "
+            f"activated={activation_allowed}; "
+            f"{metrics.get('cv_folds', 1)}-fold group CV; "
+            f"selected by {metrics.get('selected_by', 'holdout')}; "
+            f"reliable={reliable} (min R2 {settings.AI_MIN_R2}); "
+            f"feature schema v{models.FEATURE_SCHEMA_VERSION}"
+        ),
     )
-    db.query(ModelVersion).filter(
-        ModelVersion.model_type == "performance_regression", ModelVersion.is_active.is_(True)
-    ).update({"is_active": False})
+    if activation_allowed:
+        db.query(ModelVersion).filter(
+            ModelVersion.model_type == "performance_regression", ModelVersion.is_active.is_(True)
+        ).update({"is_active": False})
     db.add(mv)
     db.flush()
 
@@ -277,18 +348,34 @@ async def train_anomaly_model(
     metrics_df, _, is_demo = _load_or_generate_data(db, user_id, use_demo)
 
     if metrics_df.empty:
-        raise ValueError("No data available for training")
+        raise ValueError("No hay datos disponibles para entrenar")
 
     session_features = feat_engineering.engineer_session_features(metrics_df)
-    session_features = feat_engineering.add_individual_baseline(session_features)
+    session_features = feat_engineering.add_individual_baseline(
+        session_features, causal=True
+    )
 
-    drop_cols = ["user_id", "session_id"]
-    feature_df = session_features.drop(columns=[c for c in drop_cols if c in session_features.columns])
-    X, feature_names = feat_engineering.get_feature_matrix(feature_df)
+    feature_df = feat_engineering.select_model_features(
+        session_features, "anomaly_detection"
+    )
+    feature_names = feature_df.columns.tolist()
+    X = feature_df.values
 
     model, metrics = models.train_anomaly(X, algorithm="isolation_forest")
 
-    scaler = feat_engineering.fit_scaler(X)
+    # Quality gate for anomaly detection (unsupervised, no ROC/R2 available):
+    # synthetic data never activates, and real data needs a minimum number
+    # of sessions to avoid flagging normal behaviour from noise.
+    min_samples = settings.AI_MIN_SAMPLES_FOR_TRAINING
+    enough_data = metrics.get("train_samples", 0) >= min_samples
+    activation_allowed = not is_demo and enough_data
+    metrics["is_demo"] = is_demo
+    metrics["activated"] = activation_allowed
+    metrics["reliable"] = enough_data
+    metrics["min_samples"] = min_samples
+
+    # Scaling is handled inside the model pipeline when needed.
+    scaler = None
     filepath = models.save_model(model, scaler, feature_names, "anomaly_detection", "isolation_forest", metrics)
 
     mv = ModelVersion(
@@ -297,14 +384,20 @@ async def train_anomaly_model(
         algorithm="isolation_forest",
         version_tag=datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"),
         file_path=filepath,
-        is_active=True,
+        is_active=activation_allowed,
         trained_on=datetime.now(timezone.utc),
         samples_used=metrics["train_samples"],
-        notes=f"DEMO data: {is_demo}",
+        notes=(
+            f"DEMO data: {is_demo}; "
+            f"activated={activation_allowed}; "
+            f"samples={metrics['train_samples']}/{min_samples}; "
+            f"feature schema v{models.FEATURE_SCHEMA_VERSION}"
+        ),
     )
-    db.query(ModelVersion).filter(
-        ModelVersion.model_type == "anomaly_detection", ModelVersion.is_active.is_(True)
-    ).update({"is_active": False})
+    if activation_allowed:
+        db.query(ModelVersion).filter(
+            ModelVersion.model_type == "anomaly_detection", ModelVersion.is_active.is_(True)
+        ).update({"is_active": False})
     db.add(mv)
     db.commit()
     db.refresh(mv)
@@ -318,30 +411,70 @@ async def train_anomaly_model(
 
 
 def _get_active_model_bundle(db: Session, model_type: str) -> dict | None:
-    """Load the active model of a given type from disk."""
+    """Load the active model of a given type from disk.
+
+    Only artefacts produced with the current feature schema are accepted.
+    Legacy bundles (e.g. trained before the target-leakage fix) are
+    deactivated instead of being used for predictions.
+    """
     mv = db.query(ModelVersion).filter(
         ModelVersion.model_type == model_type, ModelVersion.is_active.is_(True)
     ).order_by(ModelVersion.trained_on.desc()).first()
     if not mv:
         return None
     if not os.path.exists(mv.file_path):
+        logger.warning("Active model %s file is missing: %s", mv.id, mv.file_path)
+        mv.is_active = False
+        db.commit()
         return None
+
     bundle = models.load_model(mv.file_path)
+    if bundle.get("feature_schema_version") != models.FEATURE_SCHEMA_VERSION:
+        logger.warning(
+            "Deactivating legacy model %s (%s): feature schema %s != %s",
+            mv.id,
+            mv.file_path,
+            bundle.get("feature_schema_version"),
+            models.FEATURE_SCHEMA_VERSION,
+        )
+        mv.is_active = False
+        db.commit()
+        return None
+
+    # Defence in depth: a model trained on synthetic data must never produce
+    # predictions about real users, even if it was mistakenly activated.
+    trained_on_demo = bool(bundle.get("metrics", {}).get("is_demo")) or (
+        "DEMO data: True" in (mv.notes or "")
+    )
+    if trained_on_demo:
+        logger.warning(
+            "Deactivating model %s: it was trained on synthetic demo data", mv.id
+        )
+        mv.is_active = False
+        db.commit()
+        return None
+
     bundle["model_version"] = mv
     return bundle
 
 
-def _build_user_feature_vector(db: Session, user_id: str, session_id: str | None) -> np.ndarray:
-    """Build a feature vector for the current user's recent activity."""
-    metrics_q = db.query(ActivityMetric).filter(ActivityMetric.user_id == user_id)
-    if session_id:
-        metrics_q = metrics_q.filter(ActivityMetric.session_id == session_id)
+def _build_user_feature_frame(
+    db: Session, user_id: str, session_id: str | None
+) -> pd.DataFrame:
+    """Build engineered features for the requested session (or the latest one).
 
-    metrics_list = metrics_q.order_by(ActivityMetric.recorded_at.desc()).limit(100).all()
-
+    All of the user's sessions are loaded so the individual baseline can be
+    computed from history. Self-reports are not merged here: they are labels,
+    not predictors.
+    """
+    metrics_list = (
+        db.query(ActivityMetric)
+        .filter(ActivityMetric.user_id == user_id)
+        .order_by(ActivityMetric.recorded_at.asc())
+        .all()
+    )
     if not metrics_list:
-        # No real metrics — return zeros; caller will mark prediction as unreliable
-        return np.zeros((1, 1)), ["placeholder"]
+        return pd.DataFrame()
 
     metrics_df = pd.DataFrame(
         [
@@ -365,33 +498,15 @@ def _build_user_feature_vector(db: Session, user_id: str, session_id: str | None
     )
 
     session_features = feat_engineering.engineer_session_features(metrics_df)
-    session_features = feat_engineering.add_individual_baseline(session_features)
+    session_features = feat_engineering.add_individual_baseline(
+        session_features, causal=True
+    )
 
-    reports = db.query(SelfReport).filter(SelfReport.user_id == user_id).order_by(
-        SelfReport.reported_at.desc()
-    ).limit(20).all()
-    if reports:
-        reports_df = pd.DataFrame(
-            [
-                {
-                    "user_id": r.user_id,
-                    "session_id": r.session_id,
-                    "fatigue_level": r.fatigue_level,
-                    "stress_level": r.stress_level,
-                    "concentration_level": r.concentration_level,
-                    "perceived_effort": r.perceived_effort,
-                    "need_for_break": r.need_for_break,
-                    "sleep_hours": r.sleep_hours,
-                }
-                for r in reports
-            ]
-        )
-        session_features = feat_engineering.merge_self_reports(session_features, reports_df)
+    if session_id:
+        return session_features[session_features["session_id"] == session_id]
 
-    drop_cols = ["user_id", "session_id"]
-    feature_df = session_features.drop(columns=[c for c in drop_cols if c in session_features.columns])
-    X, feature_names = feat_engineering.get_feature_matrix(feature_df)
-    return X, feature_names
+    latest_session = metrics_df.sort_values("recorded_at")["session_id"].iloc[-1]
+    return session_features[session_features["session_id"] == latest_session]
 
 
 async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> FatigueAssessment:
@@ -434,19 +549,14 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
     feature_names = bundle["feature_names"]
     mv = bundle["model_version"]
 
-    X, _ = _build_user_feature_vector(db, user_id, session_id)
+    feature_frame = _build_user_feature_frame(db, user_id, session_id)
 
     # If no personal data: use a zero/neutral vector. Confidence will be low.
-    if insufficient_data or (X.shape[1] == 1 and feature_names and len(feature_names) > 1):
+    if insufficient_data or feature_frame.empty:
         X = np.zeros((1, len(feature_names)))
         insufficient_data = True
-
-    # Align features
-    if X.shape[1] != len(feature_names):
-        padded = np.zeros((1, len(feature_names)))
-        min_cols = min(X.shape[1], len(feature_names))
-        padded[0, :min_cols] = X[0, :min_cols] if X.ndim > 1 else X[:min_cols]
-        X = padded
+    else:
+        X = feat_engineering.align_feature_matrix(feature_frame, feature_names)
 
     if scaler:
         X = scaler.transform(X)
@@ -558,18 +668,14 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
     feature_names = bundle["feature_names"]
     mv = bundle["model_version"]
 
-    X, _ = _build_user_feature_vector(db, user_id, session_id)
+    feature_frame = _build_user_feature_frame(db, user_id, session_id)
 
     # If no personal data: use a neutral/baseline zero vector
-    if insufficient_data or (X.shape[1] == 1 and len(feature_names) > 1):
+    if insufficient_data or feature_frame.empty:
         X = np.zeros((1, len(feature_names)))
         insufficient_data = True
-
-    if X.shape[1] != len(feature_names):
-        padded = np.zeros((1, len(feature_names)))
-        min_cols = min(X.shape[1], len(feature_names))
-        padded[0, :min_cols] = X[0, :min_cols] if X.ndim > 1 else X[:min_cols]
-        X = padded
+    else:
+        X = feat_engineering.align_feature_matrix(feature_frame, feature_names)
 
     if scaler:
         X = scaler.transform(X)
@@ -628,14 +734,10 @@ def detect_anomalies(db: Session, user_id: str) -> dict:
     scaler = bundle.get("scaler")
     feature_names = bundle["feature_names"]
 
-    X, _ = _build_user_feature_vector(db, user_id, None)
-
-    # Align features: pad or select to match the model's expected input
-    if X.shape[1] != len(feature_names):
-        padded = np.zeros((1, len(feature_names)))
-        min_cols = min(X.shape[1], len(feature_names))
-        padded[0, :min_cols] = X[0, :min_cols] if X.ndim > 1 else X[:min_cols]
-        X = padded
+    feature_frame = _build_user_feature_frame(db, user_id, None)
+    if feature_frame.empty:
+        return {"anomalies": [], "note": "No activity data available"}
+    X = feat_engineering.align_feature_matrix(feature_frame, feature_names)
 
     if scaler:
         X = scaler.transform(X)
@@ -664,7 +766,7 @@ async def train_pipeline(db: Session, model_type: str, user_id: str | None, use_
     elif model_type == "anomaly_detection":
         mv, metrics = await train_anomaly_model(db, user_id, use_demo)
     else:
-        raise ValueError(f"Unknown model type: {model_type}")
+        raise ValueError(f"Tipo de modelo desconocido: {model_type}")
 
     return {
         "model_version_id": mv.id,
@@ -672,5 +774,7 @@ async def train_pipeline(db: Session, model_type: str, user_id: str | None, use_
         "algorithm": mv.algorithm,
         "version_tag": mv.version_tag,
         "metrics": metrics,
-        "demo_data": "DEMO" in (mv.notes or ""),
+        "reliable": bool(metrics.get("reliable", True)),
+        "demo_data": bool(metrics.get("is_demo", False)),
+        "activated": bool(metrics.get("activated", mv.is_active)),
     }

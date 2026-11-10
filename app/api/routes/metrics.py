@@ -41,5 +41,7 @@ def list_session_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    metrics, total = metrics_service.list_metrics(db, session_id, pagination.offset, pagination.limit)
+    metrics, total = metrics_service.list_metrics(
+        db, session_id, current_user.id, pagination.offset, pagination.limit
+    )
     return paginate([ActivityMetricRead.model_validate(m) for m in metrics], total, pagination)

@@ -27,8 +27,37 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/refresh", response_model=dict)
 def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
-    user, access = auth_service.refresh_access_token(db, data.refresh_token)
-    return {"access_token": access, "token_type": "bearer"}
+    user, access, new_refresh = auth_service.refresh_access_token(db, data.refresh_token)
+    return {
+        "access_token": access,
+        "refresh_token": new_refresh,
+        "token_type": "bearer",
+    }
+
+
+class LogoutRequest(RefreshRequest):
+    pass
+
+
+@router.post("/logout")
+def logout(
+    data: RefreshRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Revoke one refresh token (logout on one device)."""
+    revoked = auth_service.logout(db, data.refresh_token)
+    return {"revoked": revoked}
+
+
+@router.post("/logout-all")
+def logout_all(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Revoke all refresh tokens (force re-login everywhere)."""
+    version = auth_service.logout_all(db, current_user)
+    return {"token_version": version}
 
 
 @router.get("/me", response_model=UserRead)

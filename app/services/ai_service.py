@@ -21,10 +21,22 @@ async def train_model(db: Session, request: TrainingRequest) -> TrainingResponse
         result = await pipeline.train_pipeline(
             db, request.model_type, request.user_id, request.use_demo_data
         )
+        message = f"Modelo entrenado: {result['model_type']} ({result['algorithm']})"
+        if not result.get("activated", result.get("reliable", True)):
+            if result.get("demo_data"):
+                message += (
+                    " — NO activado: se entrenó con datos sintéticos de demostración, "
+                    "así que se conserva solo para evaluación y nunca predice sobre usuarios reales."
+                )
+            else:
+                message += (
+                    " — NO activado: la calidad validada está por debajo del "
+                    "umbral mínimo, así que las predicciones siguen no disponibles."
+                )
         return TrainingResponse(
             success=True,
             model_version_id=result["model_version_id"],
-            message=f"Model trained: {result['model_type']} ({result['algorithm']})",
+            message=message,
             metrics=result["metrics"],
         )
     except Exception as exc:
@@ -46,7 +58,7 @@ def get_model(db: Session, model_id: str) -> ModelVersionWithEval:
     if not mv:
         from app.core.exceptions import NotFoundError
 
-        raise NotFoundError("Model not found")
+        raise NotFoundError("Modelo no encontrado")
     return ModelVersionWithEval.model_validate(mv)
 
 

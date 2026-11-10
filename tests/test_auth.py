@@ -91,7 +91,40 @@ class TestRefreshToken:
         resp = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
         assert resp.status_code == 200
         assert "access_token" in resp.json()
+        # Rotation: a fresh refresh token is issued.
+        assert "refresh_token" in resp.json()
+        assert resp.json()["refresh_token"] != refresh_token
 
     def test_refresh_invalid_token(self, client):
         resp = client.post("/api/v1/auth/refresh", json={"refresh_token": "invalid_token"})
         assert resp.status_code == 401
+
+    def test_refresh_token_is_single_use(self, client, test_user):
+        user, _ = test_user
+        login = client.post("/api/v1/auth/login", json={
+            "email": user.email, "password": "testpass123"
+        })
+        refresh_token = login.json()["refresh_token"]
+        first = client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": refresh_token}
+        )
+        assert first.status_code == 200
+        # Reusing the same token must be rejected.
+        second = client.post(
+            "/api/v1/auth/refresh", json={"refresh_token": refresh_token}
+        )
+        assert second.status_code == 401
+
+    def test_register_rejects_weak_password(self, client):
+        resp = client.post("/api/v1/auth/register", json={
+            "email": "weak@worksense.ai",
+            "password": "short",
+            "full_name": "Weak User",
+        })
+        assert resp.status_code == 422
+        resp = client.post("/api/v1/auth/register", json={
+            "email": "weak2@worksense.ai",
+            "password": "allletters",
+            "full_name": "Weak User",
+        })
+        assert resp.status_code == 422

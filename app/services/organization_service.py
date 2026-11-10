@@ -26,7 +26,7 @@ def list_organizations(db: Session, offset: int = 0, limit: int = 20) -> tuple[l
 def get_organization(db: Session, org_id: str) -> Organization:
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
-        raise NotFoundError("Organization not found")
+        raise NotFoundError("Organización no encontrada")
     return org
 
 
@@ -52,10 +52,10 @@ def add_member(db: Session, team_id: str, user_id: str, role_label: str = "membe
 
     team = db.query(Team).filter(Team.id == team_id).first()
     if not team:
-        raise NotFoundError("Team not found")
+        raise NotFoundError("Equipo no encontrado")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise NotFoundError("User not found")
+        raise NotFoundError("Usuario no encontrado")
 
     existing = (
         db.query(TeamMember)
