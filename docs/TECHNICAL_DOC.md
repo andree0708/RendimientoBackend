@@ -130,3 +130,8 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 ## Incidente favicon + backend local apagado (2026-11-10)
 - El tab mostraba el logo de Angular: `public/favicon.ico` por defecto del CLI seguía empaquetado y referenciado como fallback; Chrome además cachea favicons agresivamente. Fix: eliminado `favicon.ico`, solo `favicon.svg` propio (commit "Quita favicon.ico…", redesplegado). En prod `/favicon.svg` → 200. Pedir hard refresh (Ctrl+Shift+R).
 - El `ERR_CONNECTION_REFUSED` a `localhost:8000` era backend local apagado, no CORS: verificado `Access-Control-Allow-Origin: http://localhost:4200` en respuesta real y login demo local → 200 tras arrancar uvicorn. Trampa conocida: la variable de entorno `DATABASE_URL=jdbc:...` tiene prioridad sobre `.env` en pydantic-settings; hay que sobrescribirla (`sqlite:///./worksense.db`) al arrancar en local.
+
+## Bug producción: build sin `environment.prod.ts` (2026-11-10)
+- Síntoma real: desde `http://98.94.12.167:8080` el login llamaba a `http://localhost:8000` y Chrome lo bloqueaba (origen público → loopback: error CORS de "private address space", no arreglable con headers).
+- Causa: `angular.json` no tenía `fileReplacements` en la config `production`, así que todos los builds empaquetaban `environment.ts` (dev, con `localhost:8000` hardcodeado). Fix: añadido el `fileReplacements` a `environment.prod.ts` (rutas relativas `/api/v1`, `/ws`) y `Dockerfile` ahora exige `--configuration production`.
+- Verificado en el dist local (`localhost:8000`: 0 coincidencias) y en el servidor (ninguna referencia en los chunks servidos). Redespliegue solo frontend; login demo en prod → 200.
