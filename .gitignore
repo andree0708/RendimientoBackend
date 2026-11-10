@@ -67,3 +67,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local dev server
+backend-local.pid
+
