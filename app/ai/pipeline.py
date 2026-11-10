@@ -403,8 +403,8 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
         ActivityMetric.user_id == user_id
     ).count()
 
-    if bundle is None or metrics_count == 0:
-        # No model or no data — return a low-confidence "unknown" assessment
+    if bundle is None:
+        # No trained model at all — return unknown
         assessment = FatigueAssessment(
             user_id=user_id,
             session_id=session_id,
@@ -412,7 +412,7 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
             risk_category="unknown",
             risk_probability=0.0,
             confidence=0.0,
-            top_features=json.dumps({"note": "No trained model or insufficient data"}),
+            top_features=json.dumps({"note": "No trained model available. Train a model first from the Admin panel."}),
             comparison_to_baseline="No baseline available yet",
         )
         db.add(assessment)
@@ -425,6 +425,10 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
         )
         return assessment
 
+    # If no personal data yet, use a neutral/baseline feature vector
+    # and flag it as low confidence (the system is learning)
+    insufficient_data = metrics_count == 0
+
     model = bundle["model"]
     scaler = bundle.get("scaler")
     feature_names = bundle["feature_names"]
@@ -432,10 +436,13 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
 
     X, _ = _build_user_feature_vector(db, user_id, session_id)
 
-    # Align features: the model was trained on a specific set of feature names
-    # We need to make sure our feature vector matches
+    # If no personal data: use a zero/neutral vector. Confidence will be low.
+    if insufficient_data or (X.shape[1] == 1 and feature_names and len(feature_names) > 1):
+        X = np.zeros((1, len(feature_names)))
+        insufficient_data = True
+
+    # Align features
     if X.shape[1] != len(feature_names):
-        # Feature mismatch — create a padded/aligned vector
         padded = np.zeros((1, len(feature_names)))
         min_cols = min(X.shape[1], len(feature_names))
         padded[0, :min_cols] = X[0, :min_cols] if X.ndim > 1 else X[:min_cols]
@@ -459,20 +466,28 @@ async def assess_fatigue(db: Session, user_id: str, session_id: str | None) -> F
     else:
         risk_category = "low"
 
-    confidence = risk_probability if prediction == 1 else (1 - risk_probability)
+    # Cap confidence when data is insufficient
+    raw_confidence = risk_probability if prediction == 1 else (1 - risk_probability)
+    confidence = round(raw_confidence * 0.3, 3) if insufficient_data else round(raw_confidence, 3)
 
     # Explainability
     top_features = models.get_feature_importances(model, feature_names)
+
+    comparison = (
+        "Initial estimate — more activity data needed to personalize this result."
+        if insufficient_data
+        else "Compared to your individual historical baseline."
+    )
 
     assessment = FatigueAssessment(
         user_id=user_id,
         session_id=session_id,
         assessed_at=datetime.now(timezone.utc),
         risk_category=risk_category,
-        risk_probability=risk_probability,
-        confidence=round(confidence, 3),
+        risk_probability=round(risk_probability, 4),
+        confidence=confidence,
         top_features=json.dumps(top_features),
-        comparison_to_baseline="Compared to your historical average",
+        comparison_to_baseline=comparison,
         model_version_id=mv.id,
     )
     db.add(assessment)
@@ -514,7 +529,7 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
         ActivityMetric.user_id == user_id
     ).count()
 
-    if bundle is None or metrics_count == 0:
+    if bundle is None:
         prediction = PerformancePrediction(
             user_id=user_id,
             session_id=session_id,
@@ -524,7 +539,7 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
             risk_label="unknown",
             horizon_minutes=settings.AI_PREDICTION_HORIZON_MINUTES,
             confidence=0.0,
-            top_features=json.dumps({"note": "No trained model or insufficient data"}),
+            top_features=json.dumps({"note": "No trained model available. Train a model first from the Admin panel."}),
         )
         db.add(prediction)
         db.commit()
@@ -536,12 +551,19 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
         )
         return prediction
 
+    insufficient_data = metrics_count == 0
+
     model = bundle["model"]
     scaler = bundle.get("scaler")
     feature_names = bundle["feature_names"]
     mv = bundle["model_version"]
 
     X, _ = _build_user_feature_vector(db, user_id, session_id)
+
+    # If no personal data: use a neutral/baseline zero vector
+    if insufficient_data or (X.shape[1] == 1 and len(feature_names) > 1):
+        X = np.zeros((1, len(feature_names)))
+        insufficient_data = True
 
     if X.shape[1] != len(feature_names):
         padded = np.zeros((1, len(feature_names)))
@@ -562,6 +584,9 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
         risk_label = "low_risk"
 
     top_features = models.get_feature_importances(model, feature_names)
+    # Cap confidence when data is insufficient
+    raw_confidence = round(abs(variation), 3)
+    confidence = round(raw_confidence * 0.3, 3) if insufficient_data else raw_confidence
 
     prediction = PerformancePrediction(
         user_id=user_id,
@@ -571,7 +596,7 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
         predicted_variation=round(variation, 4),
         risk_label=risk_label,
         horizon_minutes=settings.AI_PREDICTION_HORIZON_MINUTES,
-        confidence=round(abs(variation), 3),
+        confidence=confidence,
         top_features=json.dumps(top_features),
         model_version_id=mv.id,
     )

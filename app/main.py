@@ -14,6 +14,7 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import init_db
 from app.core.exceptions import AppException, app_exception_handler
+from app.core.rate_limit import setup_rate_limiting
 from app.websocket.manager import ws_manager
 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +56,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+setup_rate_limiting(app)
 
 # Exception handlers
 app.add_exception_handler(AppException, app_exception_handler)
