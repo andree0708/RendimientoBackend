@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, get_db
 from app.core.security import decode_token
 from app.models.user import User
 from app.websocket.manager import ws_manager
@@ -24,6 +24,14 @@ from app.websocket.manager import ws_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
+
+
+def get_ws_session() -> Session:
+    """Return a database session for the WebSocket endpoint.
+
+    This indirection allows tests to override the session factory.
+    """
+    return SessionLocal()
 
 
 async def _authenticate_ws(token: str | None, db: Session) -> User | None:
@@ -46,7 +54,8 @@ async def _authenticate_ws(token: str | None, db: Session) -> User | None:
 async def websocket_endpoint(websocket: WebSocket):
     """Main WebSocket endpoint.  Requires a valid access token via query param."""
     token = websocket.query_params.get("token")
-    db = SessionLocal()
+    db = get_ws_session()
+    user = None
     try:
         user = await _authenticate_ws(token, db)
         if user is None:
