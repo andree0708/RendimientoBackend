@@ -154,3 +154,10 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - URL canónica: `https://hiring-infinite-turn-translate.trycloudflare.com` (verificada: `/` → 200, login demo → 200; cafeia intacto). OJO: los túneles rápidos cambian de URL si el túnel se recrea; para URL fija haría falta dominio propio + túnel nombrado.
 - Comandos útiles en el servidor: `sudo systemctl status worksense-tunnel`, URL actual con `grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' ~/worksense/cloudflared.log | tail -1`.
 - Backend local: `RendimientoBackend/start-local.ps1` lo arranca como proceso independiente (PID + logs `backend-local.*`, ignorados en git); si el PC se reinicia, re-ejecutarlo.
+
+## Cascada 401/429 en el frontend (2026-11-10)
+- Síntoma: `stop` → 401, `refresh` → 401 repetidos, `stop` → 409, login → 429.
+- Causa raíz doble en el interceptor: (1) el propio `POST /auth/refresh` pasaba por el interceptor, así que un refresh rechazado se reintentaba a sí mismo en recursión; (2) N 401s simultáneos (típico al expirar el access token con el dashboard abierto) lanzaban N refreshes con el mismo token single-use: solo ganaba el primero y el resto provocaba logout.
+- Fix: el interceptor excluye `/auth/refresh` y comparte un único refresh en vuelo (`shareReplay`, `auth.interceptor.ts`); los 401 concurrentes reintentan con el token nuevo. Tests nuevos `auth.interceptor.spec.ts` (3 casos: single-flight, logout único, no auto-intercepto). `stop` con 409 ahora sincroniza estado ("La sesión ya había terminado") en vez de error; login muestra mensaje específico ante 429.
+- Backend: mensajes de `session_service` al español ("Ya tienes una sesión de trabajo activa", "La sesión ya terminó").
+- Verificado: frontend 8/8 tests, backend 31/31 en módulos tocados; redespliegue completo y login demo OK.
