@@ -161,3 +161,9 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Fix: el interceptor excluye `/auth/refresh` y comparte un único refresh en vuelo (`shareReplay`, `auth.interceptor.ts`); los 401 concurrentes reintentan con el token nuevo. Tests nuevos `auth.interceptor.spec.ts` (3 casos: single-flight, logout único, no auto-intercepto). `stop` con 409 ahora sincroniza estado ("La sesión ya había terminado") en vez de error; login muestra mensaje específico ante 429.
 - Backend: mensajes de `session_service` al español ("Ya tienes una sesión de trabajo activa", "La sesión ya terminó").
 - Verificado: frontend 8/8 tests, backend 31/31 en módulos tocados; redespliegue completo y login demo OK.
+
+## Duraciones negativas por fechas naive (2026-11-10)
+- Síntoma en prod: banner "Iniciada 2:12 AM · -48 min". Causa: SQLite devuelve datetimes naive (UTC) y el navegador los interpretaba como hora local → la sesión "empezaba en el futuro".
+- Fix raíz en backend: nuevo `UTCDateTime` (`app/models/base.py`, TypeDecorator que re-adhiere UTC al leer; Postgres intacto) aplicado a los 19 campos DateTime de los 10 modelos + `TimestampMixin`. Formato de almacenamiento idéntico: `alembic check` sin diffs, sin migración.
+- Defensa en frontend: `sessionDuration`/`formatTime` limitan a ≥ 0 (`dashboard.ts`).
+- Verificado: suite **106 passed**, frontend 8/8, API devuelve `started_at` con offset `+00:00`, banner con hora local correcta y elapsed positivo.
