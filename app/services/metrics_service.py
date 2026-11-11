@@ -145,3 +145,21 @@ def list_metrics(
     )
     total = query.count()
     return query.offset(offset).limit(limit).all(), total
+
+
+def list_recent_metrics(
+    db: Session, user_id: str, offset: int = 0, limit: int = 100
+) -> tuple[list[ActivityMetric], int]:
+    """Most recent metrics across all of the user's sessions, newest first.
+
+    Used by the dashboard as a labeled fallback when the active session has
+    no metrics yet. Includes seeded demo rows on purpose (the user asked to
+    see them); the UI labels the fallback explicitly.
+    """
+    query = (
+        db.query(ActivityMetric)
+        .filter(ActivityMetric.user_id == user_id)
+        .order_by(ActivityMetric.recorded_at.desc())
+    )
+    total = query.count()
+    return query.offset(offset).limit(limit).all(), total

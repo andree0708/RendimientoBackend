@@ -270,3 +270,33 @@ class TestMetrics:
             }],
         }, headers=auth_headers)
         assert resp.status_code == 422
+
+    def test_recent_metrics_span_sessions_newest_first(self, client, auth_headers):
+        sess = client.post("/api/v1/sessions", json={}, headers=auth_headers)
+        session_id = sess.json()["id"]
+        client.post("/api/v1/metrics/batch", json={
+            "session_id": session_id,
+            "metrics": [{
+                "recorded_at": _now_str(),
+                "interval_seconds": 60,
+                "active_seconds": 40,
+                "idle_seconds": 20,
+            }],
+        }, headers=auth_headers)
+
+        resp = client.get("/api/v1/metrics/recent", headers=auth_headers)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["meta"]["total"] >= 1
+        assert body["items"][0]["session_id"] == session_id
+
+    def test_recent_metrics_are_not_visible_to_other_users(self, client, auth_headers):
+        other = client.post("/api/v1/auth/register", json={
+            "email": "recent-other@example.com",
+            "password": "otherpass123",
+            "full_name": "Other User",
+        }).json()
+        other_headers = {"Authorization": f"Bearer {other['access_token']}"}
+        resp = client.get("/api/v1/metrics/recent", headers=other_headers)
+        assert resp.status_code == 200
+        assert resp.json()["items"] == []

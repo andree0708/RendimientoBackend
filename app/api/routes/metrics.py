@@ -45,3 +45,16 @@ def list_session_metrics(
         db, session_id, current_user.id, pagination.offset, pagination.limit
     )
     return paginate([ActivityMetricRead.model_validate(m) for m in metrics], total, pagination)
+
+
+@router.get("/recent", response_model=ActivityMetricPage)
+def list_recent_metrics(
+    pagination=Depends(get_pagination),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Most recent metrics across all of the user's sessions, newest first."""
+    metrics, total = metrics_service.list_recent_metrics(
+        db, current_user.id, pagination.offset, pagination.limit
+    )
+    return paginate([ActivityMetricRead.model_validate(m) for m in metrics], total, pagination)
