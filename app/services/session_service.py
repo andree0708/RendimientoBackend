@@ -19,7 +19,7 @@ def start_session(db: Session, user: User, notes: str | None = None) -> WorkSess
         .first()
     )
     if active:
-        raise ConflictError("You already have an active work session")
+        raise ConflictError("Ya tienes una sesión de trabajo activa")
 
     session = WorkSession(
         user_id=user.id,
@@ -43,7 +43,7 @@ def stop_session(db: Session, session_id: str, user_id: str) -> WorkSession:
     if not session:
         raise NotFoundError("Sesión de trabajo no encontrada")
     if session.status != "active":
-        raise ConflictError("Session is already ended")
+        raise ConflictError("La sesión ya terminó")
 
     session.ended_at = datetime.now(timezone.utc)
     session.status = "completed"
