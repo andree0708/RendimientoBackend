@@ -1,10 +1,10 @@
 """Consent, agent device, and audit-log models for privacy compliance."""
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class ConsentRecord(TimestampMixin, Base):
@@ -24,8 +24,8 @@ class ConsentRecord(TimestampMixin, Base):
     scope: Mapped[str] = mapped_column(String(500), nullable=False, default="all")
     # all | activity_only | app_usage_only | minimal
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0")
-    granted_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    withdrawn_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    granted_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
+    withdrawn_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
 
 
 class AgentDevice(TimestampMixin, Base):
@@ -41,7 +41,7 @@ class AgentDevice(TimestampMixin, Base):
     os_type: Mapped[str] = mapped_column(String(50), nullable=False)  # windows | linux
     agent_version: Mapped[str] = mapped_column(String(20), nullable=False, default="1.0.0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    last_seen_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
     config_json: Mapped[str | None] = mapped_column(String, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="agent_devices")

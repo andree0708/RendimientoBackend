@@ -2,11 +2,11 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class ApplicationCategory(TimestampMixin, Base):
@@ -29,9 +29,9 @@ class WorkSession(TimestampMixin, Base):
         String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
+        UTCDateTime(timezone=True), nullable=False, index=True
     )
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
     total_active_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_idle_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_pause_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -68,7 +68,7 @@ class ActivityMetric(TimestampMixin, Base):
 
     # Time window this metric batch covers
     recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
+        UTCDateTime(timezone=True), nullable=False, index=True
     )
     interval_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
 

@@ -1,10 +1,10 @@
 """Task and task-result models."""
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class Task(TimestampMixin, Base):
@@ -28,8 +28,8 @@ class Task(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     # pending | in_progress | completed | cancelled
 
-    started_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
+    completed_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="tasks")
     session: Mapped["WorkSession | None"] = relationship("WorkSession", back_populates="tasks")

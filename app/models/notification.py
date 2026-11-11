@@ -1,10 +1,10 @@
 """Notification model persisted for WebSocket delivery and history."""
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class Notification(TimestampMixin, Base):
@@ -21,7 +21,7 @@ class Notification(TimestampMixin, Base):
     message: Mapped[str] = mapped_column(String(2000), nullable=False)
     payload: Mapped[str | None] = mapped_column(String, nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    read_at: Mapped[str | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    read_at: Mapped[str | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="notifications")
 

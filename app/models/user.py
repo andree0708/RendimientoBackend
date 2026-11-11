@@ -2,11 +2,11 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Table
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Table
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 # Association table for many-to-many User <-> Role
 user_roles = Table(
@@ -62,7 +62,7 @@ class User(TimestampMixin, Base):
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     preferred_scale_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime(timezone=True), nullable=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     organization_id: Mapped[str | None] = mapped_column(

@@ -1,10 +1,10 @@
 """Self-report model for worker-perceived fatigue, stress, and effort."""
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class SelfReport(TimestampMixin, Base):
@@ -26,7 +26,7 @@ class SelfReport(TimestampMixin, Base):
         String, ForeignKey("work_sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
     reported_at: Mapped[str] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
+        UTCDateTime(timezone=True), nullable=False, index=True
     )
 
     # Perceived indicators (1 to scale_max, typically 1-5)

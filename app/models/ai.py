@@ -1,10 +1,10 @@
 """AI model registry and prediction/assessment models."""
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
-from app.models.base import TimestampMixin, generate_uuid
+from app.models.base import TimestampMixin, UTCDateTime, generate_uuid
 
 
 class FatigueAssessment(TimestampMixin, Base):
@@ -23,7 +23,7 @@ class FatigueAssessment(TimestampMixin, Base):
     session_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("work_sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    assessed_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    assessed_at: Mapped[str] = mapped_column(UTCDateTime(timezone=True), nullable=False, index=True)
 
     # Risk category: low | moderate | high
     risk_category: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -58,8 +58,8 @@ class PerformancePrediction(TimestampMixin, Base):
     session_id: Mapped[str | None] = mapped_column(
         String, ForeignKey("work_sessions.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    predicted_at: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
-    target_time: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False)
+    predicted_at: Mapped[str] = mapped_column(UTCDateTime(timezone=True), nullable=False, index=True)
+    target_time: Mapped[str] = mapped_column(UTCDateTime(timezone=True), nullable=False)
 
     # Regression target: estimated performance variation (-1.0 to 1.0)
     predicted_variation: Mapped[float] = mapped_column(Float, nullable=False)
@@ -90,7 +90,7 @@ class ModelVersion(TimestampMixin, Base):
     version_tag: Mapped[str] = mapped_column(String(50), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=False)
-    trained_on: Mapped[str] = mapped_column(DateTime(timezone=True), nullable=False)
+    trained_on: Mapped[str] = mapped_column(UTCDateTime(timezone=True), nullable=False)
     samples_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 

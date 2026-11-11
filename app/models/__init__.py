@@ -4,7 +4,7 @@ Importing this package registers every model with the ``Base`` metadata
 so that ``init_db()`` and Alembic can see all tables.
 """
 
-from app.models.base import TimestampMixin
+from app.models.base import TimestampMixin, UTCDateTime
 from app.models.user import Role, Permission, User, user_roles, role_permissions
 from app.models.organization import Organization, Team, TeamMember
 from app.models.session import ApplicationCategory, WorkSession, ActivityMetric
@@ -23,6 +23,7 @@ from app.models.auth import RevokedRefreshToken
 
 __all__ = [
     "TimestampMixin",
+    "UTCDateTime",
     "Role",
     "Permission",
     "User",
