@@ -177,3 +177,8 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Síntoma en dashboard: "PRONÓSTICO: moderate_risk" (código crudo del backend). Causa: los mapeos `riskLabelEs`/`performanceLabelEs`/`riskEs` solo contemplaban valores sin sufijo (`moderate`), pero la API devuelve `moderate_risk`.
 - Fix: helper compartido `shared/risk-labels.ts` (`normalizeRisk` + `riskEs`, con spec de 4 casos incl. sufijos, mayúsculas y nulos) usado en dashboard y análisis; categorías de recomendación mapeadas (`recCategoryEs`); aviso "Sin métricas todavía: conecta el agente…" cuando hay sesión activa sin ingesta (el `0 min` era correcto: sin agente no hay métricas).
 - Verificado: frontend 12/12 tests, build limpio, push `b35fa5e`, redespliegue y strings ES confirmados en los chunks servidos.
+
+## KPI "Trabajo continuo" con guion (2026-11-10)
+- El "—" no era un negativo: es el marcador de "sin datos en esta sesión" (la sesión activa no tiene métricas porque no hay agente corriendo). Misma causa que el `0 min`.
+- Para que la fila sea coherente con el gráfico (que ya muestra la actividad reciente etiquetada), la tarjeta ahora muestra la mejor racha del último registro con el caption "Mejor racha del último registro"; el "—" queda solo si no hay ningún dato.
+- Verificado: frontend 12/12, build limpio, push `f5af529`, redespliegue.
