@@ -97,3 +97,19 @@ class TrainingResponse(BaseModel):
     model_version_id: str | None = None
     message: str
     metrics: dict | None = None
+
+
+class LLMAnalysisResponse(BaseModel):
+    """Result of the Groq LLM analysis (explicitly labeled, never a diagnosis)."""
+
+    success: bool
+    message: str
+    data_basis: str = "none"  # real | mixed | demo | none
+    generated_by: str | None = None  # "groq" when the LLM produced it
+    model: str | None = None
+    assessment_id: str | None = None
+    prediction_id: str | None = None
+    fatigue: dict | None = None
+    performance: dict | None = None
+    anomalies: list = []
+    recommendations_created: int = 0

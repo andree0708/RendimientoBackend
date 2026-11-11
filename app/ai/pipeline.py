@@ -17,6 +17,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from app.ai import data_generator, features as feat_engineering, models
+from app.ai import llm as llm_analysis
 from app.core.config import settings
 from app.models.ai import (
     FatigueAssessment,
@@ -741,6 +742,149 @@ async def predict_performance(db: Session, user_id: str, session_id: str | None)
     )
 
     return prediction
+
+
+async def analyze_with_llm(db: Session, user_id: str) -> dict:
+    """Run the Groq LLM analysis over the user's rows and persist results.
+
+    This is separate from the supervised ML path (which never activates on
+    synthetic data). LLM output is always labeled with its source model and
+    with the data basis ("demo" when the rows are seeded), both in the DB
+    JSON and in the API response, so the UI can badge it honestly.
+    """
+    if not llm_analysis.is_configured():
+        return {
+            "success": False,
+            "message": (
+                "Análisis IA no disponible: falta configurar GROQ_API_KEY en el servidor."
+            ),
+            "data_basis": "none",
+            "generated_by": None,
+            "model": None,
+        }
+
+    result, data_basis = llm_analysis.analyze_user(db, user_id)
+    if result is None:
+        if data_basis == "none":
+            message = (
+                "No hay datos suficientes para analizar. Registra actividad "
+                "o autorreportes primero."
+            )
+        else:
+            message = (
+                "El servicio de IA no pudo generar el análisis ahora mismo. "
+                "Inténtalo de nuevo más tarde."
+            )
+        return {
+            "success": False,
+            "message": message,
+            "data_basis": data_basis,
+            "generated_by": "groq",
+            "model": settings.GROQ_MODEL,
+        }
+
+    is_demo_basis = data_basis != "real"
+    basis_label = "datos sintéticos de demostración" if is_demo_basis else "datos reales"
+    source_tag = f"Generado por IA ({settings.GROQ_MODEL}) · {basis_label}"
+
+    fatigue = result["fatigue"]
+    factor_map = {f["name"]: f["weight"] for f in fatigue["factors"]}
+    assessment = FatigueAssessment(
+        user_id=user_id,
+        session_id=None,
+        assessed_at=datetime.now(timezone.utc),
+        risk_category=fatigue["risk"],
+        risk_probability=round(fatigue["probability"], 4),
+        confidence=round(fatigue["confidence"], 4),
+        top_features=json.dumps({
+            **factor_map,
+            "_source": "groq-llm",
+            "_model": settings.GROQ_MODEL,
+            "_data_basis": data_basis,
+        }),
+        comparison_to_baseline=(
+            f"{source_tag}. {fatigue['summary']}" if fatigue["summary"]
+            else source_tag
+        ),
+    )
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+
+    perf = result["performance"]
+    risk_label = {
+        "improving": "low_risk", "stable": "moderate_risk", "declining": "high_risk",
+    }[perf["trend"]]
+    prediction = PerformancePrediction(
+        user_id=user_id,
+        session_id=None,
+        predicted_at=datetime.now(timezone.utc),
+        target_time=datetime.now(timezone.utc) + timedelta(minutes=settings.AI_PREDICTION_HORIZON_MINUTES),
+        predicted_variation=round(perf["variation"], 4),
+        risk_label=risk_label,
+        horizon_minutes=settings.AI_PREDICTION_HORIZON_MINUTES,
+        confidence=round(perf["confidence"], 4),
+        top_features=json.dumps({
+            **factor_map,
+            "_source": "groq-llm",
+            "_model": settings.GROQ_MODEL,
+            "_data_basis": data_basis,
+        }),
+    )
+    db.add(prediction)
+    db.commit()
+    db.refresh(prediction)
+
+    created_recs = 0
+    for rec in result["recommendations"]:
+        await recommendation_service.create_and_push(
+            db=db,
+            user_id=user_id,
+            category=rec["category"],
+            title=rec["title"],
+            body=rec["body"],
+            reason=f"{source_tag}.",
+            session_id=None,
+            priority="high" if rec["priority"] == "high" and fatigue["risk"] == "high" else rec["priority"],
+        )
+        created_recs += 1
+
+    await ws_manager.send_to_user(
+        user_id, "analysis.llm_completed",
+        {
+            "assessment_id": assessment.id,
+            "prediction_id": prediction.id,
+            "risk_category": fatigue["risk"],
+            "data_basis": data_basis,
+            "recommendations_created": created_recs,
+        },
+    )
+
+    return {
+        "success": True,
+        "message": f"Análisis completado ({basis_label}).",
+        "data_basis": data_basis,
+        "generated_by": "groq",
+        "model": settings.GROQ_MODEL,
+        "assessment_id": assessment.id,
+        "prediction_id": prediction.id,
+        "fatigue": {
+            "risk_category": fatigue["risk"],
+            "risk_probability": fatigue["probability"],
+            "confidence": fatigue["confidence"],
+            "summary": fatigue["summary"],
+            "factors": fatigue["factors"],
+        },
+        "performance": {
+            "trend": perf["trend"],
+            "risk_label": risk_label,
+            "variation": perf["variation"],
+            "confidence": perf["confidence"],
+            "summary": perf["summary"],
+        },
+        "anomalies": result["anomalies"],
+        "recommendations_created": created_recs,
+    }
 
 
 def detect_anomalies(db: Session, user_id: str) -> dict:

@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemas.ai import (
     FatigueAssessmentPage,
     FatigueAssessmentRead,
+    LLMAnalysisResponse,
     ModelVersionRead,
     ModelVersionWithEval,
     PerformancePredictionPage,
@@ -42,6 +43,29 @@ async def train_model(
             f"type={data.model_type}; use_demo={data.use_demo_data}; "
             f"success={result.success}"
         ),
+    )
+    return result
+
+
+@router.post("/analyze", response_model=LLMAnalysisResponse)
+async def analyze_with_llm(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Run the Groq LLM analysis over the caller's rows.
+
+    Reads real activity (demo-seeded rows are included but tagged), asks the
+    configured LLM for an evidence-based assessment in Spanish, and persists
+    the results labeled with their source. Never a medical diagnosis.
+    """
+    result = await ai_service.analyze_with_llm(db, current_user.id)
+    audit_service.log_event(
+        db,
+        action="ai.llm_analysis",
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        resource_type="ai_analysis",
+        detail=f"success={result.success}; data_basis={result.data_basis}; model={result.model}",
     )
     return result
 

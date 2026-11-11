@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     AI_MIN_BALANCED_ACCURACY: float = 0.6
     AI_MIN_R2: float = 0.0
 
+    # ---- LLM analysis (Groq, OpenAI-compatible API) ----
+    # Empty = LLM layer disabled; the ML pipeline keeps working as before.
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_TIMEOUT_SECONDS: int = 60
+    GROQ_MAX_TOKENS: int = 1500
+
     # ---- Agent ----
     AGENT_TOKEN: str = ""
     AGENT_METRICS_BATCH_SIZE: int = 20

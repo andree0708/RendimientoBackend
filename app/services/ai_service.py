@@ -9,6 +9,7 @@ from app.models.ai import (
     PerformancePrediction,
 )
 from app.schemas.ai import (
+    LLMAnalysisResponse,
     ModelVersionWithEval,
     TrainingRequest,
     TrainingResponse,
@@ -41,6 +42,12 @@ async def train_model(db: Session, request: TrainingRequest) -> TrainingResponse
         )
     except Exception as exc:
         return TrainingResponse(success=False, message=str(exc), metrics=None)
+
+
+async def analyze_with_llm(db: Session, user_id: str) -> LLMAnalysisResponse:
+    """Run the Groq LLM analysis and map the pipeline result to the schema."""
+    result = await pipeline.analyze_with_llm(db, user_id)
+    return LLMAnalysisResponse(**result)
 
 
 def list_models(db: Session) -> list[ModelVersionWithEval]:

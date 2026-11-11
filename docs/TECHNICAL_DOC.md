@@ -136,6 +136,13 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Integridad: columna `is_demo` en `work_sessions`, `activity_metrics`, `self_reports` (migración Alembic `63f2d3832af3`, con backfill y NOT NULL); `_load_real_data` excluye demo + sesiones demo (doble defensa), y el conteo de `assess_fatigue`/`predict_performance` e `_build_user_feature_frame` también. Verificado en prod: `TRAIN-DATA-FOR-DEMO-USER: 0 0`.
 - Migración BD existente: `alembic stamp <baseline>` primero si se creó con `init_db` (prod), luego `upgrade head`. Test nuevo: `tests/test_seed_integrity.py`. Suite: **98 passed**.
 
+## Análisis IA con Groq (LLM) — 2026-11-10
+- El ML supervisado sigue con puerta de calidad (nunca se activa con sintéticos). Para análisis reales bajo demanda se añadió una capa LLM explícita y etiquetada: `POST /ai/analyze` → `ai_service.analyze_with_llm` → `pipeline.analyze_with_llm` → `app/ai/llm.py` (cliente OpenAI-compatible con `requests`, sin dependencias nuevas).
+- Modelo gratis: `openai/gpt-oss-20b` (el `llama-3.3-70b` inicial ya no existe en el catálogo Groq 2026-11; verificado vía `/v1/models`). `temperature=0.3`, `max_tokens=1500` (era 800 y truncaba JSON), sin `response_format` (no todos los modelos lo soportan; el parser extrae el bloque `{...}` tolerando fences/prosa, con **un reintento** ante salida malformada).
+- Honestidad: `data_basis` (`real|mixed|demo`) calculado de las filas; `comparison_to_baseline` y `top_features._source/_model/_data_basis` lo declaran; la UI muestra badge "Generado por IA · Groq" + badge de base de datos y disclaimer no-médico. Sin key o sin datos → `success=False` sin inventar nada (ni siquiera llama a la API si no hay evidencia).
+- Persiste `FatigueAssessment` + `PerformancePrediction` (reutilizan historial y gráficas existentes) y hasta 3 `Recommendation` con WS `analysis.llm_created`; auditado como `ai.llm_analysis`.
+- Verificado en prod contra datos reales del seed: 3/3 OK (fatiga high, 3 anomalías, 3 recomendaciones). Suite backend: **106 passed** (incluye `tests/test_llm.py` con mocks, sin llamadas reales).
+
 ## Bug producción: build sin `environment.prod.ts` (2026-11-10)
 - Síntoma real: desde `http://98.94.12.167:8080` el login llamaba a `http://localhost:8000` y Chrome lo bloqueaba (origen público → loopback: error CORS de "private address space", no arreglable con headers).
 - Causa: `angular.json` no tenía `fileReplacements` en la config `production`, así que todos los builds empaquetaban `environment.ts` (dev, con `localhost:8000` hardcodeado). Fix: añadido el `fileReplacements` a `environment.prod.ts` (rutas relativas `/api/v1`, `/ws`) y `Dockerfile` ahora exige `--configuration production`.
