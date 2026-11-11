@@ -167,3 +167,8 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Fix raíz en backend: nuevo `UTCDateTime` (`app/models/base.py`, TypeDecorator que re-adhiere UTC al leer; Postgres intacto) aplicado a los 19 campos DateTime de los 10 modelos + `TimestampMixin`. Formato de almacenamiento idéntico: `alembic check` sin diffs, sin migración.
 - Defensa en frontend: `sessionDuration`/`formatTime` limitan a ≥ 0 (`dashboard.ts`).
 - Verificado: suite **106 passed**, frontend 8/8, API devuelve `started_at` con offset `+00:00`, banner con hora local correcta y elapsed positivo.
+
+## Etiquetas de riesgo crudas en KPIs (2026-11-10)
+- Síntoma en dashboard: "PRONÓSTICO: moderate_risk" (código crudo del backend). Causa: los mapeos `riskLabelEs`/`performanceLabelEs`/`riskEs` solo contemplaban valores sin sufijo (`moderate`), pero la API devuelve `moderate_risk`.
+- Fix: helper compartido `shared/risk-labels.ts` (`normalizeRisk` + `riskEs`, con spec de 4 casos incl. sufijos, mayúsculas y nulos) usado en dashboard y análisis; categorías de recomendación mapeadas (`recCategoryEs`); aviso "Sin métricas todavía: conecta el agente…" cuando hay sesión activa sin ingesta (el `0 min` era correcto: sin agente no hay métricas).
+- Verificado: frontend 12/12 tests, build limpio, push `b35fa5e`, redespliegue y strings ES confirmados en los chunks servidos.
