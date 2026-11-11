@@ -168,6 +168,11 @@ Ver el artefacto de documentación completa en el panel de artefactos de Kiro.
 - Defensa en frontend: `sessionDuration`/`formatTime` limitan a ≥ 0 (`dashboard.ts`).
 - Verificado: suite **106 passed**, frontend 8/8, API devuelve `started_at` con offset `+00:00`, banner con hora local correcta y elapsed positivo.
 
+## Fallback de actividad en el dashboard (2026-11-10)
+- Síntoma: "Actividad en el tiempo" vacío aunque había ~4.5k métricas sembradas: el gráfico solo consultaba la sesión *activa* (vacía, sin agente corriendo).
+- Fix: nuevo `GET /api/v1/metrics/recent` (paginado, ordenado desc, aislado por usuario + tests) y fallback en el dashboard: si la sesión activa no tiene métricas, muestra la actividad más reciente con chip "Última actividad registrada" + nota explicativa. Los KPI siguen siendo por-sesión (el `0 min` ahora lleva su explicación) y el estado vacío solo sale si no hay nada en absoluto.
+- Verificado: backend 108 passed, frontend 12/12, `/metrics/recent` en prod devuelve 4489 filas, UI servida con el fallback.
+
 ## Etiquetas de riesgo crudas en KPIs (2026-11-10)
 - Síntoma en dashboard: "PRONÓSTICO: moderate_risk" (código crudo del backend). Causa: los mapeos `riskLabelEs`/`performanceLabelEs`/`riskEs` solo contemplaban valores sin sufijo (`moderate`), pero la API devuelve `moderate_risk`.
 - Fix: helper compartido `shared/risk-labels.ts` (`normalizeRisk` + `riskEs`, con spec de 4 casos incl. sufijos, mayúsculas y nulos) usado en dashboard y análisis; categorías de recomendación mapeadas (`recCategoryEs`); aviso "Sin métricas todavía: conecta el agente…" cuando hay sesión activa sin ingesta (el `0 min` era correcto: sin agente no hay métricas).
